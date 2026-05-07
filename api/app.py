@@ -1,3 +1,7 @@
+
+
+
+
 from flask import Flask, request, jsonify
 import tensorflow as tf
 import numpy as np
@@ -6,86 +10,258 @@ import os
 
 app = Flask(__name__)
 
-# تحميل الموديل مرة واحدة
-model = tf.keras.models.load_model("saved_models/final_model_balanced2.h5")
+# =========================
+# Load Model
+# =========================
+model = tf.keras.models.load_model(
+    "saved_models/final_model_5classes2.h5"
+)
 
-class_names = ["diseases", "healthy"]
+# IMPORTANT:
+# لازم نفس ترتيب الـ classes وقت التدريب
+class_names = [
+    "botrytis_gray_mold",
+    "downy_mildew",
+    "healthy",
+    "pythium_root_rot",
+    "tip_burn"
+]
 
+# =========================
+# Config
+# =========================
+MAX_IMAGES = 10
+IMAGE_SIZE = (224, 224)
+
+# confidence threshold
+CONFIDENCE_THRESHOLD = 65
+
+
+# =========================
+# Treatments Database
+# =========================
+treatments = {
+
+    "botrytis_gray_mold": {
+        "description": "Gray fungal mold affecting leaves and stems.",
+        "treatment": "Remove infected leaves and apply fungicide."
+    },
+
+    "downy_mildew": {
+        "description": "Yellow spots caused by fungal infection.",
+        "treatment": "Reduce humidity and use proper fungicide."
+    },
+
+    "pythium_root_rot": {
+        "description": "Root disease caused by overwatering.",
+        "treatment": "Improve drainage and reduce watering."
+    },
+
+    "tip_burn": {
+        "description": "Brown leaf edges due to nutrient imbalance.",
+        "treatment": "Adjust calcium levels and watering schedule."
+    }
+}
+
+
+# =========================
+# Image Preprocessing
+# =========================
 def preprocess_image(img):
-    img = img.resize((128, 128))
-    img_array = np.array(img, dtype=np.float32)  # مهم
+
+    img = img.resize(IMAGE_SIZE)
+
+    img_array = np.array(
+        img,
+        dtype=np.float32
+    )
+
     return img_array
 
+
+# =========================
+# Predict Route
+# =========================
+print("NEW API WORKING")
 @app.route("/predict", methods=["POST"])
 def predict():
+
+    # check images
     if "images" not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
+        return jsonify({
+            "error": "No images uploaded"
+        }), 400
 
     files = request.files.getlist("images")
 
-    images = []
-    for file in files:
-        img = Image.open(file).convert("RGB")
-        images.append(preprocess_image(img))
+    # max images validation
+    if len(files) > MAX_IMAGES:
+        return jsonify({
+            "error": "Maximum 10 images allowed"
+        }), 400
 
-    # shape → (batch, 128, 128, 3)
+    # empty validation
+    if len(files) == 0:
+        return jsonify({
+            "error": "Empty request"
+        }), 400
+
+    # =========================
+    # Read Images
+    # =========================
+    images = []
+
+    for file in files:
+
+        img = Image.open(file).convert("RGB")
+
+        processed = preprocess_image(img)
+
+        images.append(processed)
+
     images = np.array(images)
 
-    predictions = model.predict(images)
+    # =========================
+    # Prediction
+    # =========================
+    predictions = model.predict(images, verbose=0)
 
     results = []
-    all_confidences = []
+
     diseases_count = 0
 
+    all_confidences = []
+
+    # =========================
+    # Process Predictions
+    # =========================
     for i, pred in enumerate(predictions):
-        pred_value = float(pred[0])  # حل float32
 
-        healthy_prob = pred_value
-        diseases_prob = 1 - pred_value
+        pred_index = np.argmax(pred)
 
-        if pred_value > 0.5:
-            result = "healthy"
-            confidence = healthy_prob
+        label = class_names[pred_index]
+
+        confidence = float(
+            pred[pred_index] * 100
+        )
+
+        all_confidences.append(confidence)
+
+        # =====================
+        # Status
+        # =====================
+        if confidence >= CONFIDENCE_THRESHOLD:
+            status = "confident"
         else:
-            result = "diseases"
-            confidence = diseases_prob
+            status = "uncertain"
+
+        # =====================
+        # Healthy Case
+        # =====================
+        if label == "healthy":
+
+            result = {
+                "image_index": i + 1,
+
+                "prediction": "healthy",
+
+                "disease_name": None,
+
+                "confidence": round(confidence, 2),
+
+                "status": status,
+
+                "message": "Plant looks healthy 🌱"
+            }
+
+        # =====================
+        # Disease Case
+        # =====================
+        else:
+
             diseases_count += 1
 
-        confidence_percent = float(round(confidence * 100, 2))
+            treatment_info = treatments.get(
+                label,
+                {}
+            )
 
-        # threshold 65%
-        if confidence_percent < 65:
-            status = "⚠️ uncertain"
-        else:
-            status = "✅ confident"
+            result = {
+                "image_index": i + 1,
 
-        all_confidences.append(confidence_percent)
+                "prediction": "diseases",
 
-        results.append({
-            "image_index": i+1,
-            "prediction": result,
-            "confidence": confidence_percent,
-            "healthy_prob": float(round(healthy_prob * 100, 2)),
-            "diseases_prob": float(round(diseases_prob * 100, 2)),
-            "status": status
-        })
+                "disease_name": label,
 
-    # 🔥 Final decision
+                "confidence": round(confidence, 2),
+
+                "status": status,
+
+                "description": treatment_info.get(
+                    "description",
+                    ""
+                ),
+
+                "treatment": treatment_info.get(
+                    "treatment",
+                    ""
+                )
+            }
+
+        results.append(result)
+
+    # =========================
+    # Final Decision
+    # =========================
     if diseases_count > len(results) / 2:
         final_decision = "diseases"
     else:
         final_decision = "healthy"
 
-    avg_conf = float(round(sum(all_confidences) / len(all_confidences), 2))
+    # average confidence
+    avg_confidence = round(
+        sum(all_confidences) / len(all_confidences),
+        2
+    )
 
+    # =========================
+    # Final Response
+    # =========================
     return jsonify({
+
         "total_images": len(results),
+
         "final_decision": final_decision,
-        "average_confidence": avg_conf,
+
+        "average_confidence": avg_confidence,
+
         "results": results
+
     })
 
 
+# =========================
+# Run Server
+# =========================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+
+    port = int(
+        os.environ.get("PORT", 5000)
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=True
+    )
+
+
+
+
+
+
+
+
+# if __name__ == "__main__":
+#     port = int(os.environ.get("PORT", 5000))
+#     app.run(host="0.0.0.0", port=port)
