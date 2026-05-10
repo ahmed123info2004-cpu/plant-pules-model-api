@@ -42,24 +42,54 @@ CONFIDENCE_THRESHOLD = 65
 # =========================
 treatments = {
 
+    "pythium_root_rot": {
+        "description": "Root disease caused by Pythium fungus in hydroponic systems.",
+        "treatment": [
+            "Increase water aeration to maintain dissolved oxygen",
+            "Keep water temperature between 18–20°C",
+            "Add Trichoderma to suppress Pythium naturally",
+            "Apply Mefenoxam or Fosetyl-Al to the nutrient solution"
+        ]
+    },
+
     "botrytis_gray_mold": {
         "description": "Gray fungal mold affecting leaves and stems.",
-        "treatment": "Remove infected leaves and apply fungicide."
+        "treatment": [
+            "Use fans to reduce humidity around plants",
+            "Remove infected leaves immediately before spores spread",
+            "Spray Bacillus subtilis as a biological fungicide",
+            "Apply Iprodione or Fenhexamid fungicides"
+        ]
     },
 
     "downy_mildew": {
-        "description": "Yellow spots caused by fungal infection.",
-        "treatment": "Reduce humidity and use proper fungicide."
-    },
-
-    "pythium_root_rot": {
-        "description": "Root disease caused by overwatering.",
-        "treatment": "Improve drainage and reduce watering."
+        "description": "Fungal disease causing yellow spots and mildew.",
+        "treatment": [
+            "Keep humidity below 85% with good ventilation",
+            "Spray 1 tsp sodium bicarbonate per liter of water",
+            "Apply Mandipropamid or Dimethomorph fungicides",
+            "Use Bremia-resistant lettuce varieties"
+        ]
     },
 
     "tip_burn": {
-        "description": "Brown leaf edges due to nutrient imbalance.",
-        "treatment": "Adjust calcium levels and watering schedule."
+        "description": "Leaf edge burn caused by calcium deficiency.",
+        "treatment": [
+            "Run fans to circulate air around inner leaves",
+            "Foliar spray 0.5% calcium chloride on leaves",
+            "Lower nutrient solution EC to improve calcium absorption",
+            "Reduce high-intensity light hours to slow excessive growth"
+        ]
+    },
+
+    "healthy": {
+        "description": "Plant is healthy with no detected disease.",
+        "treatment": [
+            "Keep EC between 0.8–1.6 and pH between 5.5–6.5",
+            "Maintain water temperature at 18–22°C",
+            "Provide 14–16 hours of light daily",
+            "Check roots weekly — healthy roots are white and firm"
+        ]
     }
 }
 
@@ -113,12 +143,19 @@ def predict():
 
     for file in files:
 
-        img = Image.open(file).convert("RGB")
+        try:
 
-        processed = preprocess_image(img)
+            img = Image.open(file).convert("RGB")
 
-        images.append(processed)
+            processed = preprocess_image(img)
 
+            images.append(processed)
+
+        except Exception:
+
+            return jsonify({
+                "error": f"Invalid image: {file.filename}"
+            }), 400
     images = np.array(images)
 
     # =========================
@@ -160,6 +197,11 @@ def predict():
         # =====================
         if label == "healthy":
 
+            treatment_info = treatments.get(
+                "healthy",
+                {}
+            )
+
             result = {
                 "image_index": i + 1,
 
@@ -171,7 +213,17 @@ def predict():
 
                 "status": status,
 
-                "message": "Plant looks healthy 🌱"
+                "message": "Plant looks healthy 🌱",
+
+                "description": treatment_info.get(
+                    "description",
+                    ""
+                ),
+
+                "treatment": treatment_info.get(
+                    "treatment",
+                    []
+                )
             }
 
         # =====================
@@ -204,7 +256,7 @@ def predict():
 
                 "treatment": treatment_info.get(
                     "treatment",
-                    ""
+                    []
                 )
             }
 
