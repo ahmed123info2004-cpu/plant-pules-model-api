@@ -207,7 +207,7 @@ def predict():
 
                 "prediction": "healthy",
 
-                "disease_name": None,
+
 
                 "confidence": round(confidence, 2),
 
